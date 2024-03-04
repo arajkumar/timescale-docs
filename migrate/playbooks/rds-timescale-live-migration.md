@@ -310,94 +310,11 @@ Password for user postgres:
 
 <GettingHelp />
 
-## Performing data migration
-
-The migration process consists of the following steps:
-1. Set up a target database instance in Timescale.
-1. Prepare the source database for the live migration.
-1. Set up a replication slot and snapshot.
-1. Migrate roles and schema from source to target.
-1. Perform "Live migration".
-
-<StepOne />
-
-## 2. Prepare the source database for the live migration
-In order to replicate `UPDATE` and `DELETE` operations on tables in the source database,
-the tables must have either a primary key or `REPLICA IDENTITY`. Replica identity
-assists logical decoding in identifying the rows being modified. It defaults to
-using the table's primary key.
-
-If a table doesn't have a primary key, you'll have to manually set the replica identity.
-One option is to use a unique, non-partial, non-deferrable index that includes only
-columns marked as `NOT NULL`.
-
-```sql
-ALTER TABLE {table_name} REPLICA IDENTITY USING INDEX {_index_name};
-```
-
-If there's no primary key or viable unique index to use, you will have to set
-`REPLICA IDENTITY` to `FULL`. If you are expecting a large number of `UPDATE` or `DELETE`
-operations on the table, we do not recommend using `FULL`. For each `UPDATE` or `DELETE`
-statement, Postgres will have to read the whole table to find all matching rows
-slowing the replication process.
-
-```sql
-ALTER TABLE {table_name} REPLICA IDENTITY FULL;
-```
-
-## 3. Set up a replication slot and snapshot
-Once you're sure that the tables which will be affected by `UPDATE` and `DELETE`
-queries have `REPLICA IDENTITY` set, you will need to create a replication slot.
-
-Replication slots keep track of transactions (recorded in Write-Ahead Log files)
-in the source database that have not been streamed to the target database yet. We
-will use `pgcopydb` to create a replication slot in the source database.
-
-```sh
-pgcopydb follow \
-  --source "$SOURCE" \
-  --target "$TARGET" \
-  --fail-fast \
-  --plugin wal2json
-```
-
-This command is going to be active during most of the migration process. You should
-run it in the background or use terminal multiplexers like `screen` or `tmux`.
-
-The `follow` command sets up a replication slot in the source database to stream
-changes. These changes are held in "intermediate machine" on disk until "apply" is
-given. We will discuss about apply command in subsequent steps.
-
-Additionally, `follow` command exports a snapshot ID to `/tmp/pgcopydb/snapshot`.
-This ID can be utilized to migrate data that was in the database before the replication
-slot was created.
-
-## 4. Migrate roles and schema from source to target
-Before applying DML operations from the replication slot, the schema and data from
-the source database need to be migrated.
-The larger the size of the source database, the more time it takes to perform the
-initial migration, and the longer the buffered files need to be stored.
-
-### 4.a Migrate database roles from source database
-<LiveMigrationRoles />
-
-### 4.b Dump the database schema from the source database
-<DumpPreDataSourceSchema />
-
-### 4.c Load the roles and schema into the target database
-```sh
-psql -X -d "$TARGET" \
-  -v ON_ERROR_STOP=1 \
-  --echo-errors \
-  -f roles.sql \
-  -f pre-data-dump.sql
-```
-
-## 5. Perform "live migration"
+## Perform "live migration"
 The remaining steps for migrating data from a RDS Postgres instance to Timescale
 with low-downtime are the same as the ones mentioned in "Live migration"
-documentation from [Step 5] onwards. You should follow the mentioned steps
+documentation from [Step 1] onwards. You should follow the mentioned steps
 to successfully complete the migration process.
 
 [live migration]: /migrate/:currentVersion:/live-migration/live-migration-from-postgres/
-[Step 5]: /migrate/:currentVersion:/live-migration/live-migration-from-postgres/#5-enable-hypertables
+[Step 1]: /migrate/:currentVersion:/live-migration/live-migration-from-postgres/#1-set-up-a-target-database-instance-in-timescale
